@@ -93,7 +93,16 @@ bool CKernel::Initialize(void)
 	if (bSerialMIDIAvailable && !m_Serial.Initialize(m_Config.MIDIGPIOBaudRate))
 		return false;
 
-	// Init I2C; don't bother with Initialize() as it only sets the clock to 100/400KHz
+	// Init I2C. On the Raspberry Pi 5 this is a DesignWare controller in the
+	// RP1, not the BCM2835/BCM2711 BSC, and Initialize() is not optional there:
+	// it checks the component type, disables the adapter (DW_IC_CON and
+	// DW_IC_TAR are only writable while it is disabled), sets the Tx/Rx FIFO
+	// thresholds that Transfer() polls, and masks the interrupts. Skipping it
+	// leaves every transfer failing, which takes the LCD, MiSTer control and
+	// I2S DAC configuration with it.
+	if (!m_I2CMaster.Initialize())
+		m_Logger.Write(GetKernelName(), LogWarning, "I2C init failed; LCD, MiSTer control and I2S DAC setup will not work");
+
 	m_I2CMaster.SetClock(m_Config.SystemI2CBaudRate);
 
 	// Init SPI
