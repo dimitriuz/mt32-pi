@@ -41,6 +41,9 @@ $(CIRCLE_STDLIB_CONFIG) $(CIRCLE_CONFIG)&:
 	@echo "Configuring for Raspberry Pi $(RASPBERRYPI) ($(BITS) bit)"
 	$(CIRCLESTDLIBHOME)/configure --raspberrypi=$(RASPBERRYPI) --prefix=$(PREFIX)
 
+# Apply patches
+	@${APPLY_PATCH} $(CIRCLEHOME) patches/circle-50-rp1-i2c-pad-drive-and-sda-hold.patch
+
 
 ifeq ($(strip $(GC_SECTIONS)),1)
 # Enable function/data sections for circle-stdlib
@@ -161,6 +164,7 @@ clean:
 #
 mrproper: clean
 # Reverse patches
+	@${REVERSE_PATCH} $(CIRCLEHOME) patches/circle-50-rp1-i2c-pad-drive-and-sda-hold.patch
 	@${REVERSE_PATCH} $(FLUIDSYNTHHOME) patches/fluidsynth-2.5.x-circle.patch
 
 # Clean circle-stdlib

@@ -45,7 +45,11 @@ const char MT32PiFullName[] = MT32_PI_NAME " " MT32_PI_VERSION;
 const char WLANFirmwarePath[] = "SD:firmware/";
 const char WLANConfigFile[]   = "SD:wpa_supplicant.conf";
 
-constexpr u32 LCDUpdatePeriodMillis                = 16;
+// A 128x64 SSD1306 frame is 1025 bytes; at the 100 kHz an RP1 I2C bus needs
+// when it is loaded, that is ~92 ms of transfer. Asking every 16 ms leaves the
+// UI task permanently backlogged and starves everything else on the bus,
+// MiSTer control included. 100 ms is still 10 fps for a status display.
+constexpr u32 LCDUpdatePeriodMillis                = 100;
 constexpr u32 MisterUpdatePeriodMillis             = 50;
 constexpr u32 LEDTimeoutMillis                     = 50;
 constexpr u32 ActiveSenseTimeoutMillis             = 330;

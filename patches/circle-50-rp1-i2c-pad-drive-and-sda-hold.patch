@@ -1,0 +1,37 @@
+diff --git a/lib/i2cmaster-rp1.cpp b/lib/i2cmaster-rp1.cpp
+index 31023be..1aa026a 100644
+--- a/lib/i2cmaster-rp1.cpp
++++ b/lib/i2cmaster-rp1.cpp
+@@ -188,6 +188,12 @@ CI2CMaster::CI2CMaster (unsigned nDevice, boolean bFastMode, unsigned nConfig)
+ 	m_SCL.SetSlewRate (GPIOSlewRateLimited);
+ 	m_SCL.SetSchmittTrigger (TRUE);
+ 
++	// Linux requests drive-strength = 12 mA for these pads in the RP1 pinctrl
++	// node. The 4 mA reset default is marginal once the bus is loaded (long
++	// cables, several devices) and shows up as lost arbitration.
++	m_SDA.SetDriveStrength (GPIODriveStrength12mA);
++	m_SCL.SetDriveStrength (GPIODriveStrength12mA);
++
+ 	m_bValid = TRUE;
+ }
+ 
+@@ -714,6 +720,19 @@ void CI2CMaster::set_sda_hold (void)
+ 		{
+ 			m_sda_hold_time |= 1 << DW_IC_SDA_HOLD_RX_SHIFT;
+ 		}
++
++		// The TX hold time kept above is whatever the block reset to, which on
++		// the RP1 is a single clock cycle - 5 ns, i.e. SDA moving on the SCL
++		// edge. That loses arbitration on a loaded bus. Hold it for half the
++		// SCL low period instead, which is what Linux ends up programming.
++		u32 nTXHold = m_sda_hold_time & ~DW_IC_SDA_HOLD_RX_MASK;
++		const u32 nMinTXHold =   (  m_BusTimings.bus_freq_hz <= MAX_STANDARD_MODE_FREQ
++					  ? m_ss_lcnt : m_fs_lcnt) / 2;
++		if (nTXHold < nMinTXHold)
++		{
++			m_sda_hold_time &= DW_IC_SDA_HOLD_RX_MASK;
++			m_sda_hold_time |= nMinTXHold;
++		}
+ 	}
+ 	else if (m_sda_hold_time)
+ 	{

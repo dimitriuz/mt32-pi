@@ -208,6 +208,16 @@ bool CSSD1306::Initialize()
 		SetPageAddress,			0x00,	nPageAddrRange,
 	};
 
+	// Probe before sending the sequence. Every write here was previously
+	// issued blind and Initialize() returned true regardless, so a display
+	// that was absent, unpowered or on a bus that does not work reported
+	// success and then silently did nothing.
+	const u8 Probe[] = { 0x80, SetDisplayOff };
+	if (m_pI2CMaster->Write(m_nAddress, Probe, sizeof(Probe)) < 0)
+	{
+		return false;
+	}
+
 	for (u8 nCommand : InitSequence)
 		WriteCommand(nCommand);
 
