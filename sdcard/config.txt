@@ -34,4 +34,13 @@ kernel=kernel8-rpi4.img
 otg_mode=1
 
 [pi5]
+# Raspberry Pi 5, 500, 500+ and CM5. Firmware lives in EEPROM, so none of the
+# bootcode.bin/start*.elf files are used - this needs only the kernel, a
+# bcm2712-*.dtb matching the board and stepping, and overlays/bcm2712d0.dtbo.
+#
+# Note core_freq is set per-board above rather than globally: it is a Pi 1-4
+# concept there (locking the I2C clock), but it is still live on BCM2712, where
+# clamping it does harm. gpu_mem above is global but ignored on BCM2712, which
+# has no split memory.
 kernel=kernel_2712.img
+kernel_address=0x80000

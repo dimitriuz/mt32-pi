@@ -167,6 +167,19 @@ jobs:
              ${{ env.boot-home }}/start4cd.elf \
              sdcard
 
+          # BCM2712 boot files. The Pi 5/500 loads its firmware from EEPROM, so
+          # none of the above applies to it - it needs a device tree matching its
+          # board and silicon stepping, plus the C0->D0 overlay. Without these the
+          # kernel_2712.img shipped in the release cannot boot at all.
+          cp ${{ env.boot-home }}/bcm2712-rpi-5-b.dtb \
+             ${{ env.boot-home }}/bcm2712d0-rpi-5-b.dtb \
+             ${{ env.boot-home }}/bcm2712-rpi-500.dtb \
+             ${{ env.boot-home }}/bcm2712-rpi-cm5-cm5io.dtb \
+             ${{ env.boot-home }}/bcm2712-rpi-cm5l-cm5io.dtb \
+             sdcard
+          mkdir -p sdcard/overlays
+          cp ${{ env.boot-home }}/bcm2712d0.dtbo sdcard/overlays/
+
       - name: Download WLAN firmware
         run: |
           mkdir -p sdcard/firmware
