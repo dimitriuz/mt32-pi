@@ -89,6 +89,7 @@ CMT32Pi::CMT32Pi(CI2CMaster* pI2CMaster, CSPIMaster* pSPIMaster, CInterruptSyste
 	  m_pAppleMIDIParticipant(nullptr),
 	  m_pUDPMIDIReceiver(nullptr),
 	  m_pFTPDaemon(nullptr),
+	  m_pDebugServer(nullptr),
 
 	  m_pLCD(nullptr),
 	  m_nLCDUpdateTime(0),
@@ -948,6 +949,17 @@ void CMT32Pi::UpdateNetwork()
 			}
 			else
 				LOGNOTE("UDP MIDI receiver initialized");
+		}
+
+		// TEMP Pi 5/500 bring-up: UDP command interface on port 3333.
+		if (!m_pDebugServer)
+		{
+			m_pDebugServer = new CDebugServer(m_pI2CMaster, this);
+			if (!m_pDebugServer->Initialize())
+			{
+				delete m_pDebugServer;
+				m_pDebugServer = nullptr;
+			}
 		}
 
 		if (m_pConfig->NetworkFTPServer && !m_pFTPDaemon)

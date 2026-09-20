@@ -62,6 +62,12 @@ protected:
 	CGPIOManager m_GPIOManager;
 
 private:
+	// Temporary bring-up diagnostic for the Raspberry Pi 5/500.
+	void LogI2CScan(void);
+	bool m_bI2CInitOK = false;
+	int m_nEarlyProbeResult = 0;
+	unsigned m_nEarlyProbeAbort = 0;
+
 	CZoneAllocator m_Allocator;
 	CConfig m_Config;
 	CMT32Pi m_MT32Pi;

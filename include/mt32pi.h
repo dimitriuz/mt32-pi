@@ -55,6 +55,7 @@
 #include "lcd/ui.h"
 #include "midiparser.h"
 #include "net/applemidi.h"
+#include "net/debugserver.h"
 #include "net/ftpdaemon.h"
 #include "net/udpmidi.h"
 #include "pisound.h"
@@ -107,7 +108,16 @@ private:
 	virtual void OnAppleMIDIDisconnect(const CIPAddress* pIPAddress, const char* pName) override;
 
 	// CUDPMIDIHandler
-	virtual void OnUDPMIDIDataReceived(const u8* pData, size_t nSize) override { ParseMIDIBytes(pData, nSize); };
+	virtual void OnUDPMIDIDataReceived(const u8* pData, size_t nSize) override { m_nDebugUDPMIDIPackets++; ParseMIDIBytes(pData, nSize); };
+
+public:
+	// TEMP Pi 5/500 bring-up instrumentation.
+	void DebugInjectMIDI(const u8* pData, size_t nSize) { ParseMIDIBytes(pData, nSize); }
+	bool DebugUDPMIDIActive() const { return m_pUDPMIDIReceiver != nullptr; }
+	unsigned DebugUDPMIDIPackets() const { return m_nDebugUDPMIDIPackets; }
+	bool DebugSerialMIDIEnabled() const { return m_bSerialMIDIEnabled; }
+
+private:
 
 	// Initialization
 	bool InitNetwork();
@@ -164,6 +174,7 @@ private:
 	CAppleMIDIParticipant* m_pAppleMIDIParticipant;
 	CUDPMIDIReceiver* m_pUDPMIDIReceiver;
 	CFTPDaemon* m_pFTPDaemon;
+	CDebugServer* m_pDebugServer;		// TEMP Pi 5/500 bring-up
 
 	CBcmRandomNumberGenerator m_Random;
 
@@ -188,6 +199,7 @@ private:
 	// Serial GPIO MIDI
 	bool m_bSerialMIDIAvailable;
 	bool m_bSerialMIDIEnabled;
+	unsigned m_nDebugUDPMIDIPackets = 0;	// TEMP
 	bool m_bMIDIThruEnabled;
 
 	// USB devices

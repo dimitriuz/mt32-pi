@@ -20,6 +20,10 @@
 // mt32-pi. If not, see <http://www.gnu.org/licenses/>.
 //
 
+#include <circle/memio.h>
+#include <circle/string.h>
+#include <fatfs/ff.h>
+
 #include "config.h"
 #include "kernel.h"
 
@@ -100,10 +104,21 @@ bool CKernel::Initialize(void)
 	// thresholds that Transfer() polls, and masks the interrupts. Skipping it
 	// leaves every transfer failing, which takes the LCD, MiSTer control and
 	// I2S DAC configuration with it.
-	if (!m_I2CMaster.Initialize())
+	m_bI2CInitOK = m_I2CMaster.Initialize();
+	if (!m_bI2CInitOK)
 		m_Logger.Write(GetKernelName(), LogWarning, "I2C init failed; LCD, MiSTer control and I2S DAC setup will not work");
 
 	m_I2CMaster.SetClock(m_Config.SystemI2CBaudRate);
+
+	// TEMP: probe before any other subsystem has come up, to tell an I2C bus
+	// that is broken from the start apart from one broken by later init.
+	{
+		extern u32 g_nMT32PiI2CAbortSource;
+		g_nMT32PiI2CAbortSource = 0;
+		u8 ucZero = 0;
+		m_nEarlyProbeResult = m_I2CMaster.Write(0x3c, &ucZero, 1);
+		m_nEarlyProbeAbort  = g_nMT32PiI2CAbortSource;
+	}
 
 	// Init SPI
 	if (!m_SPIMaster.Initialize())
@@ -128,7 +143,143 @@ CStdlibApp::TShutdownMode CKernel::Run(void)
 	m_Logger.Write(GetKernelName(), LogNotice, "mt32-pi " MT32_PI_VERSION);
 	m_Logger.Write(GetKernelName(), LogNotice, "Compile time: " __DATE__ " " __TIME__);
 
+	LogI2CScan();
+
 	m_MT32Pi.Run(0);
 
 	return ShutdownReboot;
+}
+
+// Temporary bring-up diagnostic for the Raspberry Pi 5/500. Dumps the RP1 pin
+// muxing and DesignWare I2C controller state, probes the bus, and reports the
+// TX_ABRT_SOURCE that Circle otherwise collapses into a generic NACK.
+// Written to SD:/mt32-pi-diag.txt so it can be retrieved over FTP.
+
+extern u32 g_nMT32PiI2CAbortSource;		// TEMP, set by Circle's RP1 I2C driver
+
+#define RP1_GPIO_STATUS(pin)	(0x1F000D0000UL + (pin) * 8)
+#define RP1_GPIO_CTRL(pin)	(0x1F000D0000UL + (pin) * 8 + 4)
+#define RP1_PADS_CTRL(pin)	(0x1F000F0000UL + 4 + (pin) * 4)
+
+#define I2C1_BASE		0x1F00074000UL
+#define DW_CON			0x00
+#define DW_TAR			0x04
+#define DW_SS_SCL_HCNT		0x14
+#define DW_SS_SCL_LCNT		0x18
+#define DW_FS_SCL_HCNT		0x1c
+#define DW_FS_SCL_LCNT		0x20
+#define DW_RAW_INTR_STAT	0x34
+#define DW_ENABLE		0x6c
+#define DW_TX_ABRT_SOURCE	0x80
+#define DW_ENABLE_STATUS	0x9c
+#define DW_COMP_TYPE		0xfc
+
+void CKernel::LogI2CScan(void)
+{
+	CString Report;
+	CString Line;
+
+	#define EMIT(...)                                                   \
+		do {                                                        \
+			Line.Format(__VA_ARGS__);                           \
+			m_Logger.Write(GetKernelName(), LogNotice,          \
+				       static_cast<const char*>(Line));     \
+			Report.Append(static_cast<const char*>(Line));      \
+			Report.Append("\r\n");                              \
+		} while (0)
+
+	EMIT("I2C diag: CI2CMaster::Initialize() returned %s", m_bI2CInitOK ? "true" : "false");
+
+	// RP1 pin muxing. FUNCSEL 3 is I2C1 on GPIO 2/3; PADS bit 6 is input
+	// enable, bit 7 is output disable. Without IE the controller cannot see
+	// a slave pulling SDA low to acknowledge.
+	for (unsigned nPin = 2; nPin <= 3; ++nPin)
+	{
+		const u32 nCtrl = read32(RP1_GPIO_CTRL(nPin));
+		const u32 nPads = read32(RP1_PADS_CTRL(nPin));
+		EMIT("GPIO%u: CTRL=0x%08x (FUNCSEL=%u) PADS=0x%08x (IE=%u OD=%u)",
+		     nPin, nCtrl, nCtrl & 0x1F, nPads,
+		     (nPads >> 6) & 1, (nPads >> 7) & 1);
+	}
+
+	// Raw pad levels. I2C idles with both lines pulled high; INFROMPAD reading
+	// 0 means something is holding that line low, which is what makes the
+	// controller think it lost arbitration the moment it drives SDA high.
+	for (unsigned nPin = 2; nPin <= 3; ++nPin)
+	{
+		const u32 nStatus = read32(RP1_GPIO_STATUS(nPin));
+		EMIT("GPIO%u STATUS=0x%08x: INFROMPAD=%u INFILTERED=%u INTOPERI=%u OUTTOPAD=%u OETOPAD=%u  (%s)",
+		     nPin, nStatus,
+		     (nStatus >> 17) & 1, (nStatus >> 18) & 1, (nStatus >> 19) & 1,
+		     (nStatus >> 9) & 1, (nStatus >> 13) & 1,
+		     ((nStatus >> 17) & 1) ? "line HIGH - idle, as expected" : "line LOW - STUCK");
+	}
+
+	const u32 nCompType = read32(I2C1_BASE + DW_COMP_TYPE);
+	EMIT("I2C1 COMP_TYPE=0x%08x (expected 0x44570140) %s",
+	     nCompType, nCompType == 0x44570140 ? "OK" : "MISMATCH");
+	EMIT("I2C1 CON=0x%08x TAR=0x%08x ENABLE=0x%08x ENABLE_STATUS=0x%08x",
+	     read32(I2C1_BASE + DW_CON), read32(I2C1_BASE + DW_TAR),
+	     read32(I2C1_BASE + DW_ENABLE), read32(I2C1_BASE + DW_ENABLE_STATUS));
+	EMIT("I2C1 SS_HCNT=%u SS_LCNT=%u FS_HCNT=%u FS_LCNT=%u RAW_INTR=0x%08x",
+	     read32(I2C1_BASE + DW_SS_SCL_HCNT), read32(I2C1_BASE + DW_SS_SCL_LCNT),
+	     read32(I2C1_BASE + DW_FS_SCL_HCNT), read32(I2C1_BASE + DW_FS_SCL_LCNT),
+	     read32(I2C1_BASE + DW_RAW_INTR_STAT));
+
+	EMIT("early probe 0x3c (before other init): result=%d ABRT_SOURCE=0x%08x",
+	     m_nEarlyProbeResult, m_nEarlyProbeAbort);
+
+	// The SSD1306 is write-only, so probe it the way it is actually used.
+	// 0x45 is the MiSTer control interface.
+	static const struct { u8 nAddress; const char* pName; } Probes[] =
+	{
+		{0x3c, "LCD"},
+		{0x45, "MiSTer"},
+	};
+
+	for (const auto& Probe : Probes)
+	{
+		g_nMT32PiI2CAbortSource = 0;
+
+		u8 ucZero = 0;
+		const int nResult = m_I2CMaster.Write(Probe.nAddress, &ucZero, 1);
+		const u32 nAbort = g_nMT32PiI2CAbortSource;
+
+		EMIT("probe 0x%02x (%s): result=%d ABRT_SOURCE=0x%08x%s%s%s%s",
+		     Probe.nAddress, Probe.pName, nResult, nAbort,
+		     nAbort & (1u << 0)  ? " 7B_ADDR_NOACK" : "",
+		     nAbort & (1u << 3)  ? " TXDATA_NOACK"  : "",
+		     nAbort & (1u << 11) ? " MASTER_DIS"    : "",
+		     nAbort & (1u << 12) ? " ARB_LOST"      : "");
+	}
+
+	// Raspberry Pi OS talks to this board fine at its 100 kHz default, while
+	// mt32-pi runs the bus at 400 kHz. If SDA cannot rise fast enough the
+	// master reads back low while driving high, which is exactly ARB_LOST.
+	for (unsigned nClock = 100000; nClock <= 200000; nClock += 100000)
+	{
+		m_I2CMaster.SetClock(nClock);
+
+		g_nMT32PiI2CAbortSource = 0;
+		u8 ucZero = 0;
+		const int nResult = m_I2CMaster.Write(0x3c, &ucZero, 1);
+		const u32 nAbort = g_nMT32PiI2CAbortSource;
+
+		EMIT("probe 0x3c @ %u Hz: result=%d ABRT_SOURCE=0x%08x%s%s",
+		     nClock, nResult, nAbort,
+		     nAbort & (1u << 0)  ? " 7B_ADDR_NOACK" : "",
+		     nAbort & (1u << 12) ? " ARB_LOST"      : "");
+	}
+
+	#undef EMIT
+
+	FIL File;
+	if (f_open(&File, "SD:/mt32-pi-diag.txt", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK)
+	{
+		UINT nWritten;
+		f_write(&File, static_cast<const char*>(Report), Report.GetLength(), &nWritten);
+		f_close(&File);
+	}
+	else
+		m_Logger.Write(GetKernelName(), LogWarning, "Could not write SD:/mt32-pi-diag.txt");
 }
