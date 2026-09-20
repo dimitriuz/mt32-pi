@@ -134,6 +134,7 @@ $(FLUIDSYNTHBUILDDIR)/.done: $(CIRCLESTDLIBHOME)/.done
 		 -Denable-pulseaudio=OFF \
 		 -Denable-readline=OFF \
 		 -Denable-sdl2=OFF \
+		 -Denable-sdl3=OFF \
 		 -Denable-threads=OFF \
 		 -Denable-waveout=OFF \
 		 -Denable-winmidi=OFF \
