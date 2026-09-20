@@ -165,6 +165,50 @@ Otherwise, for a manual installation:
 6. Connect a [USB MIDI interface][USB MIDI interfaces] or [GPIO MIDI circuit][GPIO MIDI interface] to the Pi, and connect some speakers to the headphone jack.
 7. Connect your vintage PC's MIDI OUT to the Pi's MIDI IN and (optionally) vice versa.
 
+## 🛠️ Building for the Raspberry Pi 500 / Pi 5
+
+There is no prebuilt release of this fork yet, so you build it. On a Linux machine:
+
+```sh
+# 1. Sources
+git clone https://github.com/dimitriuz/mt32-pi.git
+cd mt32-pi
+make submodules
+
+# 2. Toolchain (bare-metal AArch64; this is the version CI builds with)
+mkdir -p ~/toolchains && cd ~/toolchains
+wget https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-elf.tar.xz
+tar -xf arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-elf.tar.xz
+export PATH="$HOME/toolchains/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-elf/bin:$PATH"
+
+# 3. Build (produces kernel_2712.img)
+cd -
+make -j"$(nproc)" BOARD=pi5
+
+# 4. Boot firmware and device trees
+make -C external/circle-stdlib/libs/circle/boot firmware
+```
+
+Then format an SD card as **FAT32** and copy onto it:
+
+| From | What |
+|---|---|
+| repo root | `kernel_2712.img` |
+| `sdcard/` | `config.txt`, `cmdline.txt`, `mt32-pi.cfg`, `roms/`, `soundfonts/` |
+| `external/circle-stdlib/libs/circle/boot/` | `bcm2712-rpi-500.dtb`, `bcm2712-rpi-5-b.dtb`, `bcm2712d0-rpi-5-b.dtb` |
+| `external/circle-stdlib/libs/circle/boot/` | `bcm2712d0.dtbo` → into an `overlays/` directory on the card |
+
+Add your MT-32/CM-32L ROMs to `roms/` and any SoundFonts to `soundfonts/`.
+
+> [!IMPORTANT]
+> The device tree files are not optional. A Pi 5/500 loads its firmware from EEPROM and uses none of
+> `bootcode.bin`/`start*.elf`, but it **will not boot** without a `bcm2712-*.dtb` matching its board and silicon
+> stepping, plus `overlays/bcm2712d0.dtbo`. The firmware picks the right blob itself, so copy all of them.
+> A card with only `kernel_2712.img` and `config.txt` gives a black screen and then a power-off.
+
+Build for other boards with `BOARD=pi3-64` or `BOARD=pi4-64`; add `HDMI_CONSOLE=1` to get the boot log on a
+monitor, which is useful when something does not come up.
+
 ## 🔌 Using it with MiSTer over the network
 
 The safe way to pair mt32-pi with a MiSTer on a Pi 5/500: no interface board, no shared power rail, nothing on the
